@@ -41,29 +41,32 @@ def analyze_mails(
     results: list[AnalysisResult] = []
 
     for i, mail in enumerate(mails):
-        summary = [{"uid": mail.uid, "subject": mail.subject, "body_preview": mail.body[:500]}]
+        try:
+            summary = [{"uid": mail.uid, "subject": mail.subject, "body_preview": mail.body[:500]}]
 
-        response = client.chat.completions.create(
-            model=config.ai_model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(summary, ensure_ascii=False)},
-            ],
-            temperature=0.2,
-        )
-
-        raw = response.choices[0].message.content or "[]"
-        data = json.loads(raw)
-
-        for item in data:
-            results.append(
-                AnalysisResult(
-                    uid=str(item["uid"]),
-                    importance=item.get("importance", "low"),
-                    reason=item.get("reason", ""),
-                    action=item.get("action", ""),
-                )
+            response = client.chat.completions.create(
+                model=config.ai_model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": json.dumps(summary, ensure_ascii=False)},
+                ],
+                temperature=0.2,
             )
+
+            raw = response.choices[0].message.content or "[]"
+            data = json.loads(raw)
+
+            for item in data:
+                results.append(
+                    AnalysisResult(
+                        uid=str(item["uid"]),
+                        importance=item.get("importance", "low"),
+                        reason=item.get("reason", ""),
+                        action=item.get("action", ""),
+                    )
+                )
+        except Exception:
+            pass  # skip this email, continue with the rest
 
         if on_progress:
             on_progress(i + 1, total)

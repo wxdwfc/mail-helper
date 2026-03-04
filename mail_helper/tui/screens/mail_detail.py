@@ -45,14 +45,12 @@ class MailDetailModal(ModalScreen):
     }
     """
 
-    def __init__(self, mail: MailMessage, config: AppConfig, is_seen: bool = False) -> None:
+    def __init__(self, mail: MailMessage, config: AppConfig) -> None:
         super().__init__()
         self._mail = mail
         self._config = config
-        self._is_seen = is_seen
 
     def compose(self) -> ComposeResult:
-        mark_label = "Mark Unread" if self._is_seen else "Mark Read"
         with Vertical():
             yield Label(f"From:    {self._mail.sender}", classes="meta")
             yield Label(f"Date:    {self._mail.date}", classes="meta")
@@ -62,7 +60,6 @@ class MailDetailModal(ModalScreen):
             with Horizontal(id="button-bar"):
                 yield Button("Reply", id="reply-btn", variant="primary")
                 yield Button("Delete", id="delete-btn", variant="error")
-                yield Button(mark_label, id="mark-btn", variant="warning")
                 yield Button("Close", id="close-btn")
 
     def action_dismiss_none(self) -> None:
@@ -74,7 +71,5 @@ class MailDetailModal(ModalScreen):
             self.app.push_screen(ReplyModal(self._mail, self._config))
         elif event.button.id == "delete-btn":
             self.dismiss("delete")
-        elif event.button.id == "mark-btn":
-            self.dismiss("mark_unread" if self._is_seen else "mark_read")
         elif event.button.id == "close-btn":
             self.dismiss(None)

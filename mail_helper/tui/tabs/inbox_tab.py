@@ -41,10 +41,12 @@ class InboxTab(TabPane):
         self._config = config
         self._mail_map: dict[str, MailMessage] = {}
         self._seen_uids: set[str] = set()
+        self._cursor_uid: str | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="toolbar"):
             yield Label("", id="status")
+            yield Button("Mark Read", id="mark-btn", variant="warning")
             yield Button("Analyze with AI", id="analyze-btn", variant="primary")
         yield ProgressBar(id="analysis-progress", total=1, show_eta=False)
         yield DataTable(id="inbox-table")
@@ -69,6 +71,15 @@ class InboxTab(TabPane):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "analyze-btn":
             self._run_analysis()
+        elif event.button.id == "mark-btn" and self._cursor_uid:
+            seen = self._cursor_uid not in self._seen_uids
+            self._mark_seen_bg(self._cursor_uid, seen)
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.row_key is not None:
+            self._cursor_uid = str(event.row_key.value)
+            is_seen = self._cursor_uid in self._seen_uids
+            self.query_one("#mark-btn", Button).label = "Mark Unread" if is_seen else "Mark Read"
 
     @work(thread=True, exclusive=True)
     def _load_inbox(self, background: bool = False) -> None:
@@ -161,19 +172,14 @@ class InboxTab(TabPane):
         uid = str(event.row_key.value)
         mail = self._mail_map.get(uid)
         if mail:
-            is_seen = uid in self._seen_uids
             self.app.push_screen(
-                MailDetailModal(mail, self._config, is_seen),
+                MailDetailModal(mail, self._config),
                 callback=lambda result, u=uid: self._on_detail_closed(u, result),
             )
 
     def _on_detail_closed(self, uid: str, result: str | None) -> None:
         if result == "delete":
             self._delete_mail_bg(uid)
-        elif result == "mark_read":
-            self._mark_seen_bg(uid, seen=True)
-        elif result == "mark_unread":
-            self._mark_seen_bg(uid, seen=False)
 
     @work(thread=True)
     def _delete_mail_bg(self, uid: str) -> None:
@@ -225,3 +231,5 @@ class InboxTab(TabPane):
             table.update_cell(uid, "priority", label, update_width=True)
         except Exception:
             pass
+        if uid == self._cursor_uid:
+            self.query_one("#mark-btn", Button).label = "Mark Unread" if seen else "Mark Read"
