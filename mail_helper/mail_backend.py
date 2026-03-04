@@ -1,13 +1,16 @@
 import email
 import imaplib
-import re
 import smtplib
 from dataclasses import dataclass
 from email.header import decode_header
 from email.mime.text import MIMEText
 from html.parser import HTMLParser
+from typing import TYPE_CHECKING
 
 from .config import AppConfig
+
+if TYPE_CHECKING:
+    from .bulk_plan import RenderedEmail
 
 
 @dataclass
@@ -193,6 +196,18 @@ class SMTPClient:
         for recipient in recipients:
             try:
                 self._send_one(recipient.strip(), subject, body)
+                sent.append(recipient)
+            except Exception:
+                failed.append(recipient)
+        return sent, failed
+
+    def send_rendered(self, rendered: list["RenderedEmail"]) -> tuple[list[str], list[str]]:
+        sent: list[str] = []
+        failed: list[str] = []
+        for item in rendered:
+            recipient = item.to.strip()
+            try:
+                self._send_one(recipient, item.subject, item.body)
                 sent.append(recipient)
             except Exception:
                 failed.append(recipient)

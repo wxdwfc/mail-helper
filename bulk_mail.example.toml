@@ -1,0 +1,13 @@
+[templates.welcome]
+subject = "Hi {name}, welcome to {team}"
+body_file = "templates/welcome.txt"
+
+[[emails]]
+to = "alice@example.com"
+template = "welcome"
+vars = { name = "Alice", team = "Infra" }
+
+[[emails]]
+to = "bob@example.com"
+template = "welcome"
+vars = { name = "Bob", team = "Infra" }

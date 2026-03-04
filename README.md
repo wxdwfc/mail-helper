@@ -6,9 +6,10 @@ A Python terminal mail client with a Textual TUI and a Claude Code `/mail` slash
 
 - **Inbox tab** — fetch and browse unread emails via IMAP
 - **Search tab** — keyword search across subjects and body text
-- **Compose tab** — send bulk emails via SMTP
+- **Compose tab** — send bulk emails via SMTP (manual or TOML plan)
+- **TOML bulk-send** — template + variables + dry-run preview before actual sending
 - **Mail detail modal** — scrollable full-email view
-- **CLI** — `inbox` and `analyze` commands for scripting and Claude Code integration
+- **CLI** — `inbox`, `analyze`, and `bulk-send` commands for scripting and automation
 - **AI prioritization** — ranks emails by importance using any OpenAI-compatible model
 
 ## Setup
@@ -48,6 +49,10 @@ Keyboard shortcuts:
 - `Escape` — close detail modal
 - `Q` — quit
 
+Compose tab supports two bulk-send paths:
+- Manual: one subject/body for recipients entered line-by-line
+- TOML plan: load plan path, preview rendered rows, then click `Send From TOML`
+
 ### CLI
 
 ```bash
@@ -59,7 +64,44 @@ python -m mail_helper.cli analyze
 
 # Re-fetch from server before analyzing
 python -m mail_helper.cli analyze --fresh
+
+# TOML-driven bulk send (dry-run preview only)
+python -m mail_helper.cli bulk-send --plan bulk_mail.example.toml
+
+# Actually send after preview/validation
+python -m mail_helper.cli bulk-send --plan bulk_mail.example.toml --yes
 ```
+
+### TOML Bulk Plan Format
+
+`bulk-send` accepts a TOML file with templates and email items.
+
+```toml
+[templates.welcome]
+subject = "Hi {name}, welcome to {team}"
+body_file = "templates/welcome.txt"
+# body and body_file are mutually exclusive
+
+[[emails]]
+to = "alice@example.com"
+template = "welcome"
+vars = { name = "Alice", team = "Infra" }
+
+[[emails]]
+to = "bob@example.com"
+template = "welcome"
+vars = { name = "Bob", team = "Infra" }
+```
+
+Rules:
+- `templates.<id>.subject` is required.
+- Exactly one of `templates.<id>.body` or `templates.<id>.body_file` must be set.
+- `[[emails]]` entries require `to`, `template`, and `vars`.
+- Placeholder syntax is `{name}` (Python `str.format_map`).
+- `body_file` is resolved relative to the TOML file directory.
+- Any validation/render error blocks the entire send (no partial send starts).
+
+Use `bulk_mail.example.toml` and `templates/welcome.txt` as a starting point.
 
 ### Claude Code `/mail` skill
 
@@ -71,11 +113,14 @@ From within a Claude Code session in this directory, run `/mail` to use the AI-a
 mail-helper/
 ├── main.py                        # TUI entry point
 ├── config.yaml.example            # Config template
+├── bulk_mail.example.toml         # Example TOML bulk-send plan
+├── templates/                     # Example body templates
 ├── requirements.txt
 ├── .claude/commands/mail.md       # /mail slash command
 └── mail_helper/
     ├── config.py                  # AppConfig + load_config()
     ├── mail_backend.py            # IMAPClient + SMTPClient
+    ├── bulk_plan.py               # TOML plan parsing + rendering
     ├── ai_analyzer.py             # AI importance analysis
     ├── cli.py                     # Click CLI
     └── tui/
