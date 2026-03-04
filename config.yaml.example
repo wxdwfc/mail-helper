@@ -1,0 +1,23 @@
+# Mail Helper Configuration
+# Copy this file to config.yaml and fill in your credentials
+
+# IMAP settings (for reading email)
+imap_host: imap.gmail.com
+imap_port: 993
+
+# SMTP settings (for sending email)
+smtp_host: smtp.gmail.com
+smtp_port: 587
+smtp_use_ssl: false  # true for port 465, false for port 587 (STARTTLS)
+
+# Your email credentials
+email: you@example.com
+password: your-app-password-here
+
+# AI provider (OpenAI-compatible)
+ai_api_base: https://api.openai.com/v1
+ai_api_key: sk-your-api-key-here
+ai_model: gpt-4o-mini
+
+# How many emails to fetch
+fetch_count: 50
