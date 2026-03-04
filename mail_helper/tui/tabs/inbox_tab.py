@@ -6,7 +6,7 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Label, ProgressBar, TabPane
 
 from ...ai_analyzer import AnalysisResult, analyze_mails
-from ...cache import load_inbox, save_inbox
+from ...cache import load_inbox, load_seen_uids, save_inbox, save_seen_uids
 from ...config import AppConfig
 from ...mail_backend import IMAPClient, MailMessage
 from ..screens.mail_detail import MailDetailModal
@@ -60,6 +60,8 @@ class InboxTab(TabPane):
         table.add_column("Subject", key="subject")
         table.add_column("Date", key="date")
         table.cursor_type = "row"
+
+        self._seen_uids = load_seen_uids()
 
         # Show cached emails instantly, then refresh in background
         cached, saved_at = load_inbox()
@@ -155,7 +157,8 @@ class InboxTab(TabPane):
         self._mail_map.clear()
         for m in mails:
             self._mail_map[m.uid] = m
-            table.add_row("", m.sender[:40], m.subject[:60], m.date[:30], key=m.uid)
+            priority = Text("read", style="dim") if m.uid in self._seen_uids else Text("")
+            table.add_row(priority, m.sender[:40], m.subject[:60], m.date[:30], key=m.uid)
         count = len(mails)
         self._set_status(f"{count} unread email{'s' if count != 1 else ''} — press R to refresh")
 
@@ -229,6 +232,7 @@ class InboxTab(TabPane):
         else:
             self._seen_uids.discard(uid)
             label = Text("")
+        save_seen_uids(self._seen_uids)
         try:
             table.update_cell(uid, "priority", label, update_width=True)
         except Exception:
