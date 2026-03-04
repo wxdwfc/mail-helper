@@ -1,6 +1,7 @@
 from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DataTable, Label, ProgressBar, TabPane
 
@@ -14,6 +15,8 @@ _PRIORITY_COLORS = {"high": "red", "medium": "yellow", "low": "green"}
 
 
 class InboxTab(TabPane):
+    BINDINGS = [Binding("m", "toggle_read", "Mark Read/Unread")]
+
     DEFAULT_CSS = """
     InboxTab {
         padding: 1;
@@ -46,7 +49,6 @@ class InboxTab(TabPane):
     def compose(self) -> ComposeResult:
         with Horizontal(id="toolbar"):
             yield Label("", id="status")
-            yield Button("Mark Read", id="mark-btn", variant="warning")
             yield Button("Analyze with AI", id="analyze-btn", variant="primary")
         yield ProgressBar(id="analysis-progress", total=1, show_eta=False)
         yield DataTable(id="inbox-table")
@@ -71,15 +73,15 @@ class InboxTab(TabPane):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "analyze-btn":
             self._run_analysis()
-        elif event.button.id == "mark-btn" and self._cursor_uid:
-            seen = self._cursor_uid not in self._seen_uids
-            self._mark_seen_bg(self._cursor_uid, seen)
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key is not None:
             self._cursor_uid = str(event.row_key.value)
-            is_seen = self._cursor_uid in self._seen_uids
-            self.query_one("#mark-btn", Button).label = "Mark Unread" if is_seen else "Mark Read"
+
+    def action_toggle_read(self) -> None:
+        if self._cursor_uid:
+            seen = self._cursor_uid not in self._seen_uids
+            self._mark_seen_bg(self._cursor_uid, seen)
 
     @work(thread=True, exclusive=True)
     def _load_inbox(self, background: bool = False) -> None:
@@ -231,5 +233,3 @@ class InboxTab(TabPane):
             table.update_cell(uid, "priority", label, update_width=True)
         except Exception:
             pass
-        if uid == self._cursor_uid:
-            self.query_one("#mark-btn", Button).label = "Mark Unread" if seen else "Mark Read"
