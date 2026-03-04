@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -31,14 +32,28 @@ class AnalysisResult:
     action: str
 
 
+def _load_rules(path: str = "rule.md") -> str | None:
+    """Return contents of rules file if it exists, else None."""
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    return None
+
+
 def analyze_mails(
     mails: list[MailMessage],
     config: AppConfig,
     on_progress: Callable[[int, int], None] | None = None,
+    rules_path: str = "rule.md",
 ) -> list[AnalysisResult]:
     client = OpenAI(api_key=config.ai_api_key, base_url=config.ai_api_base)
     total = len(mails)
     results: list[AnalysisResult] = []
+
+    rules = _load_rules(rules_path)
+    system_prompt = SYSTEM_PROMPT
+    if rules:
+        system_prompt += "\n\n## User-defined rules\n\n" + rules
 
     for i, mail in enumerate(mails):
         try:
@@ -47,7 +62,7 @@ def analyze_mails(
             response = client.chat.completions.create(
                 model=config.ai_model,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": json.dumps(summary, ensure_ascii=False)},
                 ],
                 temperature=0.2,

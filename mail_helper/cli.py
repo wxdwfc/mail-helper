@@ -57,7 +57,8 @@ def inbox(limit: int, save: bool) -> None:
 
 @cli.command()
 @click.option("--fresh", is_flag=True, default=False, help="Re-fetch from server instead of cache")
-def analyze(fresh: bool) -> None:
+@click.option("--rules", default="rule.md", show_default=True, help="Path to rules file injected into AI prompt")
+def analyze(fresh: bool, rules: str) -> None:
     """Analyze emails with AI and show prioritized results."""
     config = load_config()
 
@@ -93,7 +94,7 @@ def analyze(fresh: bool) -> None:
         def on_progress(current: int, total: int) -> None:
             progress.update(task, completed=current)
 
-        results = analyze_mails(mails, config, on_progress=on_progress)
+        results = analyze_mails(mails, config, on_progress=on_progress, rules_path=rules)
 
     mail_map = {m.uid: m for m in mails}
     colors = {"high": "red", "medium": "yellow", "low": "green"}

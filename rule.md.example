@@ -1,0 +1,21 @@
+# Email Prioritization Rules
+
+Use these rules when classifying emails. They override generic heuristics.
+
+## High importance (always)
+- Emails from my-boss@example.com or cto@example.com
+- Subject lines containing "urgent", "action required", or "deadline"
+- Emails about production incidents or on-call alerts
+
+## Low importance (always)
+- Newsletters and marketing emails (unsubscribe links present)
+- GitHub notification digests and automated CI/CD reports
+- Emails where I am CC'd but not in the To field
+
+## Medium importance (default)
+- Meeting invitations that I haven't responded to
+- Code review requests from teammates
+
+## Special rules
+- Any email from noreply@* addresses is low importance unless it contains a security alert
+- Emails in languages other than English should be treated the same as English ones

@@ -123,6 +123,7 @@ class InboxTab(TabPane):
                 mails,
                 self._config,
                 on_progress=lambda c, t: self.app.call_from_thread(self._update_progress, c, t),
+                rules_path="rule.md",
             )
         except Exception as exc:
             self.app.call_from_thread(self._set_status, f"Analysis error: {exc}")

@@ -65,6 +65,9 @@ python -m mail_helper.cli analyze
 # Re-fetch from server before analyzing
 python -m mail_helper.cli analyze --fresh
 
+# Use a custom rules file
+python -m mail_helper.cli analyze --rules ~/my-rules.md
+
 # TOML-driven bulk send (dry-run preview only)
 python -m mail_helper.cli bulk-send --plan bulk_mail.example.toml
 
@@ -102,6 +105,17 @@ Rules:
 - Any validation/render error blocks the entire send (no partial send starts).
 
 Use `bulk_mail.example.toml` and `templates/welcome.txt` as a starting point.
+
+### AI filtering rules (`rule.md`)
+
+Drop a `rule.md` in the working directory to inject personal prioritization rules into the AI prompt. Both CLI and TUI pick it up automatically — no config change needed.
+
+```bash
+cp rule.md.example rule.md
+# Edit to match your priorities, then analyze as usual
+```
+
+If `rule.md` is absent the analyzer falls back to its built-in behavior. See `rule.md.example` for the format.
 
 ### Claude Code `/mail` skill
 
