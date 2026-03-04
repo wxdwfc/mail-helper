@@ -29,3 +29,26 @@ def load_inbox(path: str = CACHE_FILE) -> tuple[list[MailMessage], str | None]:
         return mails, data.get("saved_at")
     except Exception:
         return [], None
+
+
+def save_seen_uids(uids: set[str], path: str = CACHE_FILE) -> None:
+    """Persist the seen UID set into the existing cache file."""
+    p = Path(path)
+    try:
+        data = json.loads(p.read_text()) if p.exists() else {}
+    except Exception:
+        data = {}
+    data["seen_uids"] = list(uids)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def load_seen_uids(path: str = CACHE_FILE) -> set[str]:
+    """Return the persisted seen UID set, or empty set if none."""
+    p = Path(path)
+    if not p.exists():
+        return set()
+    try:
+        data = json.loads(p.read_text())
+        return set(data.get("seen_uids", []))
+    except Exception:
+        return set()
