@@ -1,0 +1,8 @@
+Hi {name},
+
+Welcome to {team}.
+
+Please read the onboarding docs and reply if you need anything.
+
+Best,
+Mail Helper
