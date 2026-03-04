@@ -58,17 +58,17 @@ class SearchTab(TabPane):
 
     @work(thread=True, exclusive=True)
     def _run_search(self, keyword: str) -> None:
-        self.call_from_thread(self._set_status, f'Searching for "{keyword}"…')
+        self.app.call_from_thread(self._set_status, f'Searching for "{keyword}"…')
         client = IMAPClient(self._config)
         try:
             client.connect()
             mails = client.search_keyword(keyword, limit=self._config.fetch_count)
         except Exception as exc:
-            self.call_from_thread(self._set_status, f"Error: {exc}")
+            self.app.call_from_thread(self._set_status, f"Error: {exc}")
             return
         finally:
             client.disconnect()
-        self.call_from_thread(self._populate_table, mails, keyword)
+        self.app.call_from_thread(self._populate_table, mails, keyword)
 
     def _set_status(self, text: str) -> None:
         self.query_one(Label).update(text)

@@ -1,27 +1,13 @@
-import json
-from pathlib import Path
-
 import click
 from rich.console import Console
 from rich.table import Table
 
 from .ai_analyzer import analyze_mails
+from .cache import load_inbox, save_inbox
 from .config import load_config
-from .mail_backend import IMAPClient, MailMessage
+from .mail_backend import IMAPClient
 
-CACHE_FILE = ".mail_cache.json"
 console = Console()
-
-
-def _mails_to_dicts(mails: list[MailMessage]) -> list[dict]:
-    return [
-        {"uid": m.uid, "subject": m.subject, "sender": m.sender, "date": m.date, "body": m.body}
-        for m in mails
-    ]
-
-
-def _dicts_to_mails(data: list[dict]) -> list[MailMessage]:
-    return [MailMessage(**d) for d in data]
 
 
 @click.group()
@@ -60,8 +46,8 @@ def inbox(limit: int, save: bool) -> None:
     console.print(table)
 
     if save:
-        Path(CACHE_FILE).write_text(json.dumps(_mails_to_dicts(mails), ensure_ascii=False, indent=2))
-        console.print(f"[dim]Saved to {CACHE_FILE}[/dim]")
+        save_inbox(mails)
+        console.print("[dim]Saved to cache[/dim]")
 
 
 @cli.command()
@@ -70,7 +56,7 @@ def analyze(fresh: bool) -> None:
     """Analyze emails with AI and show prioritized results."""
     config = load_config()
 
-    if fresh or not Path(CACHE_FILE).exists():
+    if fresh:
         client = IMAPClient(config)
         try:
             with console.status("Fetching emails…"):
@@ -78,11 +64,13 @@ def analyze(fresh: bool) -> None:
                 mails = client.fetch_unread(limit=config.fetch_count)
         finally:
             client.disconnect()
-        Path(CACHE_FILE).write_text(json.dumps(_mails_to_dicts(mails), ensure_ascii=False, indent=2))
+        save_inbox(mails)
     else:
-        data = json.loads(Path(CACHE_FILE).read_text())
-        mails = _dicts_to_mails(data)
-        console.print(f"[dim]Loaded {len(mails)} emails from cache[/dim]")
+        mails, saved_at = load_inbox()
+        if not mails:
+            console.print("[yellow]No cache found — run 'inbox' first or use --fresh[/yellow]")
+            return
+        console.print(f"[dim]Loaded {len(mails)} emails from cache (saved {saved_at})[/dim]")
 
     if not mails:
         console.print("[yellow]No emails to analyze.[/yellow]")
@@ -91,9 +79,7 @@ def analyze(fresh: bool) -> None:
     with console.status("Analyzing with AI…"):
         results = analyze_mails(mails, config)
 
-    # Build uid → mail lookup
     mail_map = {m.uid: m for m in mails}
-
     COLORS = {"high": "red", "medium": "yellow", "low": "green"}
 
     table = Table(title="AI-Prioritized Emails", show_lines=True)

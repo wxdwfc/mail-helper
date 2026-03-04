@@ -55,16 +55,24 @@ class IMAPClient:
             pass
         self._conn = None
 
-    def fetch_unread(self, limit: int | None = None) -> list[MailMessage]:
+    def get_unread_uids(self, limit: int | None = None) -> list[str]:
+        """Return UNSEEN UIDs newest-first without fetching bodies."""
         assert self._conn is not None, "Not connected"
         _, data = self._conn.search(None, "UNSEEN")
         uids = data[0].split()
         if limit:
-            uids = uids[-limit:]  # newest at end
-        uids = list(reversed(uids))  # newest-first
+            uids = uids[-limit:]
+        return [uid.decode() for uid in reversed(uids)]
+
+    def fetch_unread(self, limit: int | None = None) -> list[MailMessage]:
+        return self.fetch_uids(self.get_unread_uids(limit))
+
+    def fetch_uids(self, uids: list[str]) -> list[MailMessage]:
+        """Fetch full messages for the given UID list."""
+        assert self._conn is not None, "Not connected"
         results = []
         for uid in uids:
-            msg = self._fetch_single(uid.decode())
+            msg = self._fetch_single(uid)
             if msg:
                 results.append(msg)
         return results
@@ -72,17 +80,48 @@ class IMAPClient:
     def search_keyword(self, keyword: str, limit: int | None = None) -> list[MailMessage]:
         assert self._conn is not None, "Not connected"
         escaped = keyword.replace('"', '\\"')
-        criteria = f'OR SUBJECT "{escaped}" TEXT "{escaped}"'
-        _, data = self._conn.search(None, criteria)
-        uids = data[0].split()
+        is_unicode = not all(ord(c) < 128 for c in keyword)
+
+        uids: list[bytes] | None = None
+        if is_unicode:
+            # Try CHARSET UTF-8 search (RFC 5738); many servers support it
+            try:
+                criteria_bytes = f'OR SUBJECT "{escaped}" TEXT "{escaped}"'.encode("utf-8")
+                _, data = self._conn.search("UTF-8", criteria_bytes)
+                uids = data[0].split()
+            except (imaplib.IMAP4.error, Exception):
+                uids = None  # fall through to client-side
+
+        if uids is None and not is_unicode:
+            # Pure ASCII — plain server-side search
+            _, data = self._conn.search(None, f'OR SUBJECT "{escaped}" TEXT "{escaped}"')
+            uids = data[0].split()
+
+        if uids is None:
+            # Server rejected UTF-8 charset — filter client-side
+            return self._client_side_search(keyword, limit)
+
         if limit:
             uids = uids[-limit:]
-        uids = list(reversed(uids))
         results = []
-        for uid in uids:
+        for uid in reversed(uids):
             msg = self._fetch_single(uid.decode())
             if msg:
                 results.append(msg)
+        return results
+
+    def _client_side_search(self, keyword: str, limit: int | None = None) -> list[MailMessage]:
+        """Fetch recent emails and match keyword in Python (Unicode-safe fallback)."""
+        _, data = self._conn.search(None, "ALL")
+        all_uids = data[0].split()[-200:]  # cap at 200 to avoid full-mailbox fetch
+        kw = keyword.lower()
+        results = []
+        for uid in reversed(all_uids):
+            msg = self._fetch_single(uid.decode())
+            if msg and (kw in msg.subject.lower() or kw in msg.body.lower()):
+                results.append(msg)
+                if limit and len(results) >= limit:
+                    break
         return results
 
     def _fetch_single(self, uid: str) -> MailMessage | None:

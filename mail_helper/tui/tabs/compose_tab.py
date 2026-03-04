@@ -62,12 +62,12 @@ class ComposeTab(TabPane):
 
     @work(thread=True)
     def _send_mails(self, recipients: list[str], subject: str, body: str) -> None:
-        self.call_from_thread(self._set_status, f"Sending to {len(recipients)} recipient(s)…")
+        self.app.call_from_thread(self._set_status, f"Sending to {len(recipients)} recipient(s)…")
         client = SMTPClient(self._config)
         try:
             sent, failed = client.send_bulk(recipients, subject, body)
         except Exception as exc:
-            self.call_from_thread(self._set_status, f"Error: {exc}")
+            self.app.call_from_thread(self._set_status, f"Error: {exc}")
             return
 
         parts = []
@@ -75,7 +75,7 @@ class ComposeTab(TabPane):
             parts.append(f"Sent to {len(sent)}")
         if failed:
             parts.append(f"Failed: {', '.join(failed)}")
-        self.call_from_thread(self._set_status, " | ".join(parts) if parts else "Done.")
+        self.app.call_from_thread(self._set_status, " | ".join(parts) if parts else "Done.")
 
     def _set_status(self, text: str) -> None:
         self.query_one("#status", Label).update(text)
