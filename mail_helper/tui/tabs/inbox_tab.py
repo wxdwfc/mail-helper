@@ -1,8 +1,8 @@
 from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
-from textual.containers import Horizontal
-from textual.widgets import Button, DataTable, Label, TabPane
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Button, DataTable, Label, ProgressBar, TabPane
 
 from ...ai_analyzer import AnalysisResult, analyze_mails
 from ...cache import load_inbox, save_inbox
@@ -29,17 +29,24 @@ class InboxTab(TabPane):
     InboxTab Button {
         margin-left: 1;
     }
+    InboxTab #analysis-progress {
+        display: none;
+        height: 1;
+        margin-top: 1;
+    }
     """
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__("Inbox", id="inbox")
         self._config = config
         self._mail_map: dict[str, MailMessage] = {}
+        self._seen_uids: set[str] = set()
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="toolbar"):
             yield Label("", id="status")
             yield Button("Analyze with AI", id="analyze-btn", variant="primary")
+        yield ProgressBar(id="analysis-progress", total=1, show_eta=False)
         yield DataTable(id="inbox-table")
 
     def on_mount(self) -> None:
@@ -90,20 +97,38 @@ class InboxTab(TabPane):
 
     @work(thread=True, exclusive=True)
     def _run_analysis(self) -> None:
-        mails = list(self._mail_map.values())
+        mails = [m for m in self._mail_map.values() if m.uid not in self._seen_uids]
         if not mails:
             self.app.call_from_thread(self._set_status, "No emails to analyze.")
             return
         self.app.call_from_thread(self._set_status, f"Analyzing {len(mails)} emails with AI…")
         self.app.call_from_thread(self._set_analyze_btn, disabled=True)
         try:
-            results = analyze_mails(mails, self._config)
+            results = analyze_mails(
+                mails,
+                self._config,
+                on_progress=lambda c, t: self.app.call_from_thread(self._update_progress, c, t),
+            )
         except Exception as exc:
             self.app.call_from_thread(self._set_status, f"Analysis error: {exc}")
             self.app.call_from_thread(self._set_analyze_btn, disabled=False)
+            self.app.call_from_thread(self._hide_progress)
             return
         self.app.call_from_thread(self._apply_analysis, results)
         self.app.call_from_thread(self._set_analyze_btn, disabled=False)
+
+    def _update_progress(self, current: int, total: int) -> None:
+        bar = self.query_one("#analysis-progress", ProgressBar)
+        if current == 1:
+            bar.total = total
+            bar.progress = 0
+            bar.display = True
+        bar.advance(1)
+        if current == total:
+            bar.display = False
+
+    def _hide_progress(self) -> None:
+        self.query_one("#analysis-progress", ProgressBar).display = False
 
     def _set_status(self, text: str) -> None:
         self.query_one("#status", Label).update(text)
@@ -136,4 +161,67 @@ class InboxTab(TabPane):
         uid = str(event.row_key.value)
         mail = self._mail_map.get(uid)
         if mail:
-            self.app.push_screen(MailDetailModal(mail))
+            is_seen = uid in self._seen_uids
+            self.app.push_screen(
+                MailDetailModal(mail, self._config, is_seen),
+                callback=lambda result, u=uid: self._on_detail_closed(u, result),
+            )
+
+    def _on_detail_closed(self, uid: str, result: str | None) -> None:
+        if result == "delete":
+            self._delete_mail_bg(uid)
+        elif result == "mark_read":
+            self._mark_seen_bg(uid, seen=True)
+        elif result == "mark_unread":
+            self._mark_seen_bg(uid, seen=False)
+
+    @work(thread=True)
+    def _delete_mail_bg(self, uid: str) -> None:
+        client = IMAPClient(self._config)
+        try:
+            client.connect()
+            client.delete_mail(uid)
+        except Exception as exc:
+            self.app.call_from_thread(self._set_status, f"Delete error: {exc}")
+            return
+        finally:
+            client.disconnect()
+        self.app.call_from_thread(self._remove_row, uid)
+
+    @work(thread=True)
+    def _mark_seen_bg(self, uid: str, seen: bool) -> None:
+        client = IMAPClient(self._config)
+        try:
+            client.connect()
+            if seen:
+                client.mark_seen(uid)
+            else:
+                client.mark_unseen(uid)
+        except Exception as exc:
+            self.app.call_from_thread(self._set_status, f"Mark error: {exc}")
+            return
+        finally:
+            client.disconnect()
+        self.app.call_from_thread(self._apply_seen_state, uid, seen)
+
+    def _remove_row(self, uid: str) -> None:
+        table = self.query_one("#inbox-table", DataTable)
+        try:
+            table.remove_row(uid)
+        except Exception:
+            pass
+        self._mail_map.pop(uid, None)
+        self._seen_uids.discard(uid)
+
+    def _apply_seen_state(self, uid: str, seen: bool) -> None:
+        table = self.query_one("#inbox-table", DataTable)
+        if seen:
+            self._seen_uids.add(uid)
+            label = Text("read", style="dim")
+        else:
+            self._seen_uids.discard(uid)
+            label = Text("")
+        try:
+            table.update_cell(uid, "priority", label, update_width=True)
+        except Exception:
+            pass

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from openai import OpenAI
@@ -30,35 +31,42 @@ class AnalysisResult:
     action: str
 
 
-def analyze_mails(mails: list[MailMessage], config: AppConfig) -> list[AnalysisResult]:
+def analyze_mails(
+    mails: list[MailMessage],
+    config: AppConfig,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> list[AnalysisResult]:
     client = OpenAI(api_key=config.ai_api_key, base_url=config.ai_api_base)
+    total = len(mails)
+    results: list[AnalysisResult] = []
 
-    summaries = [
-        {"uid": m.uid, "subject": m.subject, "body_preview": m.body[:500]}
-        for m in mails
-    ]
+    for i, mail in enumerate(mails):
+        summary = [{"uid": mail.uid, "subject": mail.subject, "body_preview": mail.body[:500]}]
 
-    response = client.chat.completions.create(
-        model=config.ai_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(summaries, ensure_ascii=False)},
-        ],
-        temperature=0.2,
-    )
-
-    raw = response.choices[0].message.content or "[]"
-    data = json.loads(raw)
-
-    results = [
-        AnalysisResult(
-            uid=str(item["uid"]),
-            importance=item.get("importance", "low"),
-            reason=item.get("reason", ""),
-            action=item.get("action", ""),
+        response = client.chat.completions.create(
+            model=config.ai_model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(summary, ensure_ascii=False)},
+            ],
+            temperature=0.2,
         )
-        for item in data
-    ]
+
+        raw = response.choices[0].message.content or "[]"
+        data = json.loads(raw)
+
+        for item in data:
+            results.append(
+                AnalysisResult(
+                    uid=str(item["uid"]),
+                    importance=item.get("importance", "low"),
+                    reason=item.get("reason", ""),
+                    action=item.get("action", ""),
+                )
+            )
+
+        if on_progress:
+            on_progress(i + 1, total)
 
     results.sort(key=lambda r: IMPORTANCE_ORDER.get(r.importance, 2))
     return results

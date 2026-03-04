@@ -1,5 +1,6 @@
 import click
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 from rich.table import Table
 
 from .ai_analyzer import analyze_mails
@@ -76,8 +77,19 @@ def analyze(fresh: bool) -> None:
         console.print("[yellow]No emails to analyze.[/yellow]")
         return
 
-    with console.status("Analyzing with AI…"):
-        results = analyze_mails(mails, config)
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Analyzing with AI…", total=len(mails))
+
+        def on_progress(current: int, total: int) -> None:
+            progress.update(task, completed=current)
+
+        results = analyze_mails(mails, config, on_progress=on_progress)
 
     mail_map = {m.uid: m for m in mails}
     COLORS = {"high": "red", "medium": "yellow", "low": "green"}

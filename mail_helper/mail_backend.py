@@ -124,6 +124,19 @@ class IMAPClient:
                     break
         return results
 
+    def mark_seen(self, uid: str) -> None:
+        assert self._conn is not None, "Not connected"
+        self._conn.uid("STORE", uid, "+FLAGS", r"(\Seen)")
+
+    def mark_unseen(self, uid: str) -> None:
+        assert self._conn is not None, "Not connected"
+        self._conn.uid("STORE", uid, "-FLAGS", r"(\Seen)")
+
+    def delete_mail(self, uid: str) -> None:
+        assert self._conn is not None, "Not connected"
+        self._conn.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
+        self._conn.expunge()
+
     def _fetch_single(self, uid: str) -> MailMessage | None:
         try:
             _, data = self._conn.fetch(uid, "(RFC822)")
