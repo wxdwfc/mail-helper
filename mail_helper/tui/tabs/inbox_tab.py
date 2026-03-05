@@ -144,7 +144,7 @@ class InboxTab(TabPane):
         client = IMAPClient(self._config)
         try:
             client.connect()
-            uids = client.get_unread_uids(limit=self._config.fetch_count)
+            uids = client.get_all_uids(limit=self._config.fetch_count)
 
             # Reuse cached bodies for UIDs we already have
             cached_map = {m.uid: m for m in self._mail_map.values()}
@@ -218,7 +218,7 @@ class InboxTab(TabPane):
             priority = Text("read", style="dim") if m.uid in self._seen_uids else Text("")
             table.add_row(priority, m.sender[:40], m.subject[:60], m.date[:30], key=m.uid)
         count = len(mails)
-        self._set_status(f"{count} unread email{'s' if count != 1 else ''} — press R to refresh")
+        self._set_status(f"{count} email{'s' if count != 1 else ''} — press R to refresh")
         table.focus()
 
     def _apply_single_result(self, result: AnalysisResult, current: int, total: int) -> None:

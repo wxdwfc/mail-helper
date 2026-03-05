@@ -20,6 +20,8 @@ class MailMessage:
     sender: str
     date: str
     body: str
+    message_id: str = ""
+    references: str = ""
 
 
 class _HTMLStripper(HTMLParser):
@@ -62,6 +64,15 @@ class IMAPClient:
         """Return UNSEEN UIDs newest-first without fetching bodies."""
         assert self._conn is not None, "Not connected"
         _, data = self._conn.search(None, "UNSEEN")
+        uids = data[0].split()
+        if limit:
+            uids = uids[-limit:]
+        return [uid.decode() for uid in reversed(uids)]
+
+    def get_all_uids(self, limit: int | None = None) -> list[str]:
+        """Return ALL UIDs (read + unread) newest-first without fetching bodies."""
+        assert self._conn is not None, "Not connected"
+        _, data = self._conn.search(None, "ALL")
         uids = data[0].split()
         if limit:
             uids = uids[-limit:]
@@ -149,7 +160,12 @@ class IMAPClient:
             sender = self._decode_header_value(msg.get("From", ""))
             date = msg.get("Date", "")
             body = self._extract_body(msg)
-            return MailMessage(uid=uid, subject=subject, sender=sender, date=date, body=body)
+            message_id = msg.get("Message-ID", "").strip()
+            references = msg.get("References", "").strip()
+            return MailMessage(
+                uid=uid, subject=subject, sender=sender, date=date, body=body,
+                message_id=message_id, references=references,
+            )
         except Exception:
             return None
 
@@ -201,6 +217,33 @@ class SMTPClient:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
 
+    def send_reply(self, original: MailMessage, subject: str, body: str) -> None:
+        """Send a reply that is properly threaded with quoted original body."""
+        quoted = "\n".join("> " + line for line in (original.body or "").splitlines())
+        attribution = f"On {original.date}, {original.sender} wrote:"
+        full_body = f"{body}\n\n{attribution}\n{quoted}"
+
+        msg = MIMEText(full_body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = self.config.email
+        msg["To"] = original.sender
+        if original.message_id:
+            msg["In-Reply-To"] = original.message_id
+            refs = original.references
+            msg["References"] = (refs + " " + original.message_id).strip() if refs else original.message_id
+        self._deliver(original.sender.strip(), msg)
+
+    def _deliver(self, recipient: str, msg: MIMEText) -> None:
+        if self.config.smtp_use_ssl:
+            with smtplib.SMTP_SSL(self.config.smtp_host, self.config.smtp_port) as server:
+                server.login(self.config.email, self.config.password)
+                server.sendmail(self.config.email, [recipient], msg.as_string())
+        else:
+            with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port) as server:
+                server.starttls()
+                server.login(self.config.email, self.config.password)
+                server.sendmail(self.config.email, [recipient], msg.as_string())
+
     def send_bulk(
         self, recipients: list[str], subject: str, body: str
     ) -> tuple[list[str], list[str]]:
@@ -231,13 +274,4 @@ class SMTPClient:
         msg["Subject"] = subject
         msg["From"] = self.config.email
         msg["To"] = recipient
-
-        if self.config.smtp_use_ssl:
-            with smtplib.SMTP_SSL(self.config.smtp_host, self.config.smtp_port) as server:
-                server.login(self.config.email, self.config.password)
-                server.sendmail(self.config.email, [recipient], msg.as_string())
-        else:
-            with smtplib.SMTP(self.config.smtp_host, self.config.smtp_port) as server:
-                server.starttls()
-                server.login(self.config.email, self.config.password)
-                server.sendmail(self.config.email, [recipient], msg.as_string())
+        self._deliver(recipient, msg)

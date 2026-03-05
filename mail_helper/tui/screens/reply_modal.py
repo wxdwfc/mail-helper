@@ -5,6 +5,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, TextArea
 from textual.containers import Horizontal, Vertical
 
+from ...ai_analyzer import suggest_reply
 from ...config import AppConfig
 from ...mail_backend import MailMessage, SMTPClient
 
@@ -59,9 +60,11 @@ class ReplyModal(ModalScreen):
             yield Label(f"To: {self._mail.sender}", id="to-label")
             yield Input(value=subject, placeholder="Subject", id="subject-input")
             yield TextArea("", id="body-input")
+            yield Input(placeholder="AI instruction (e.g. decline politely, reply in Chinese…)", id="ai-instruction")
             yield Label("", id="error-msg")
             with Horizontal(id="button-bar"):
                 yield Button("Send Reply", id="send-btn", variant="primary")
+                yield Button("AI Suggest", id="ai-suggest-btn", variant="success")
                 yield Button("Cancel", id="cancel-btn")
 
     def action_cancel(self) -> None:
@@ -70,19 +73,40 @@ class ReplyModal(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "send-btn":
             self._send_reply()
+        elif event.button.id == "ai-suggest-btn":
+            self._ai_suggest()
         elif event.button.id == "cancel-btn":
             self.dismiss()
+
+    @work(thread=True)
+    def _ai_suggest(self) -> None:
+        instruction = self.query_one("#ai-instruction", Input).value.strip()
+        self.app.call_from_thread(self._set_suggesting, True)
+        try:
+            draft = suggest_reply(self._mail, self._config, instruction=instruction)
+            self.app.call_from_thread(self._fill_draft, draft)
+        except Exception as exc:
+            self.app.call_from_thread(self._show_error, str(exc))
+        finally:
+            self.app.call_from_thread(self._set_suggesting, False)
+
+    def _set_suggesting(self, active: bool) -> None:
+        btn = self.query_one("#ai-suggest-btn", Button)
+        btn.disabled = active
+        btn.label = "Thinking…" if active else "AI Suggest"
+
+    def _fill_draft(self, text: str) -> None:
+        self.query_one("#body-input", TextArea).load_text(text)
 
     @work(thread=True)
     def _send_reply(self) -> None:
         subject = self.query_one("#subject-input", Input).value
         body = self.query_one("#body-input", TextArea).text
-        recipient = self._mail.sender
 
         self.app.call_from_thread(self._set_sending, True)
         try:
             smtp = SMTPClient(self._config)
-            smtp.send_bulk([recipient], subject, body)
+            smtp.send_reply(self._mail, subject, body)
             self.app.call_from_thread(self.dismiss)
         except Exception as exc:
             self.app.call_from_thread(self._show_error, str(exc))

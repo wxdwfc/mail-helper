@@ -10,6 +10,11 @@ from .mail_backend import MailMessage
 
 IMPORTANCE_ORDER = {"high": 0, "medium": 1, "low": 2}
 
+REPLY_SYSTEM_PROMPT = """\
+You are a professional email assistant. Given the original email, draft a concise and polite reply.
+Return ONLY the reply body text, no subject line, no markdown fences, no extra commentary.
+"""
+
 SYSTEM_PROMPT = """\
 You are an email prioritization assistant. Given a list of emails in JSON format,
 analyze each one and return a JSON array with one object per email.
@@ -38,6 +43,36 @@ def _load_rules(path: str = "rule.md") -> str | None:
         with open(path, encoding="utf-8") as f:
             return f.read()
     return None
+
+
+def suggest_reply(
+    mail: "MailMessage",
+    config: "AppConfig",
+    instruction: str = "",
+    prompt_path: str = "reply_prompt.md",
+) -> str:
+    """Return an AI-drafted reply body for the given email."""
+    client = OpenAI(api_key=config.ai_api_key, base_url=config.ai_api_base)
+
+    system_prompt = REPLY_SYSTEM_PROMPT
+    custom = _load_rules(prompt_path)
+    if custom:
+        system_prompt += "\n\n## User instructions\n\n" + custom
+
+    user_content = (
+        f"From: {mail.sender}\nSubject: {mail.subject}\n\n{mail.body or '(no body)'}"
+    )
+    if instruction:
+        user_content += f"\n\n## How to reply\n{instruction}"
+    response = client.chat.completions.create(
+        model=config.ai_model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        temperature=0.5,
+    )
+    return (response.choices[0].message.content or "").strip()
 
 
 def analyze_mails(
