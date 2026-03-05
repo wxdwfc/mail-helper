@@ -68,6 +68,7 @@ class InboxTab(TabPane):
         table.add_column("Subject", key="subject")
         table.add_column("Date", key="date")
         table.cursor_type = "row"
+        table.focus()
 
         self._seen_uids = load_seen_uids()
 
@@ -218,6 +219,7 @@ class InboxTab(TabPane):
             table.add_row(priority, m.sender[:40], m.subject[:60], m.date[:30], key=m.uid)
         count = len(mails)
         self._set_status(f"{count} unread email{'s' if count != 1 else ''} — press R to refresh")
+        table.focus()
 
     def _apply_single_result(self, result: AnalysisResult, current: int, total: int) -> None:
         # Don't overwrite a "del" mark; update saved label instead
