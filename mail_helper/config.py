@@ -15,7 +15,7 @@ class AppConfig:
     ai_api_base: str = "https://api.openai.com/v1"
     ai_api_key: str = ""
     ai_model: str = "gpt-4o-mini"
-    fetch_count: int = 50
+    fetch_count: int = 25
 
 
 def load_config(path: str = "config.yaml") -> AppConfig:
@@ -38,5 +38,5 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         ai_api_base=data.get("ai_api_base", "https://api.openai.com/v1"),
         ai_api_key=data.get("ai_api_key", ""),
         ai_model=data.get("ai_model", "gpt-4o-mini"),
-        fetch_count=int(data.get("fetch_count", 50)),
+        fetch_count=int(data.get("fetch_count", 25)),
     )

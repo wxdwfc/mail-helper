@@ -44,6 +44,7 @@ def analyze_mails(
     mails: list[MailMessage],
     config: AppConfig,
     on_progress: Callable[[int, int], None] | None = None,
+    on_result: Callable[["AnalysisResult", int, int], None] | None = None,
     rules_path: str = "rule.md",
 ) -> list[AnalysisResult]:
     client = OpenAI(api_key=config.ai_api_key, base_url=config.ai_api_base)
@@ -56,6 +57,7 @@ def analyze_mails(
         system_prompt += "\n\n## User-defined rules\n\n" + rules
 
     for i, mail in enumerate(mails):
+        result: AnalysisResult | None = None
         try:
             summary = [{"uid": mail.uid, "subject": mail.subject, "body_preview": mail.body[:500]}]
 
@@ -72,17 +74,18 @@ def analyze_mails(
             data = json.loads(raw)
 
             for item in data:
-                results.append(
-                    AnalysisResult(
-                        uid=str(item["uid"]),
-                        importance=item.get("importance", "low"),
-                        reason=item.get("reason", ""),
-                        action=item.get("action", ""),
-                    )
+                result = AnalysisResult(
+                    uid=str(item["uid"]),
+                    importance=item.get("importance", "low"),
+                    reason=item.get("reason", ""),
+                    action=item.get("action", ""),
                 )
+                results.append(result)
         except Exception:
             pass  # skip this email, continue with the rest
 
+        if on_result and result:
+            on_result(result, i + 1, total)
         if on_progress:
             on_progress(i + 1, total)
 

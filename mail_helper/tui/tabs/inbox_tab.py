@@ -116,13 +116,15 @@ class InboxTab(TabPane):
         if not mails:
             self.app.call_from_thread(self._set_status, "No emails to analyze.")
             return
-        self.app.call_from_thread(self._set_status, f"Analyzing {len(mails)} emails with AI…")
+        total = len(mails)
+        self.app.call_from_thread(self._set_status, f"Analyzing {total} emails with AI…")
         self.app.call_from_thread(self._set_analyze_btn, disabled=True)
         try:
-            results = analyze_mails(
+            analyze_mails(
                 mails,
                 self._config,
                 on_progress=lambda c, t: self.app.call_from_thread(self._update_progress, c, t),
+                on_result=lambda r, c, t: self.app.call_from_thread(self._apply_single_result, r, c, t),
                 rules_path="rule.md",
             )
         except Exception as exc:
@@ -130,7 +132,7 @@ class InboxTab(TabPane):
             self.app.call_from_thread(self._set_analyze_btn, disabled=False)
             self.app.call_from_thread(self._hide_progress)
             return
-        self.app.call_from_thread(self._apply_analysis, results)
+        self.app.call_from_thread(self._set_status, "Analysis complete")
         self.app.call_from_thread(self._set_analyze_btn, disabled=False)
 
     def _update_progress(self, current: int, total: int) -> None:
@@ -163,16 +165,15 @@ class InboxTab(TabPane):
         count = len(mails)
         self._set_status(f"{count} unread email{'s' if count != 1 else ''} — press R to refresh")
 
-    def _apply_analysis(self, results: list[AnalysisResult]) -> None:
+    def _apply_single_result(self, result: AnalysisResult, current: int, total: int) -> None:
         table = self.query_one("#inbox-table", DataTable)
-        for r in results:
-            color = _PRIORITY_COLORS.get(r.importance, "white")
-            label = Text(r.importance, style=f"bold {color}")
-            try:
-                table.update_cell(r.uid, "priority", label, update_width=True)
-            except Exception:
-                pass
-        self._set_status("Analysis complete — sorted by AI priority")
+        color = _PRIORITY_COLORS.get(result.importance, "white")
+        label = Text(result.importance, style=f"bold {color}")
+        try:
+            table.update_cell(result.uid, "priority", label, update_width=True)
+        except Exception:
+            pass
+        self._set_status(f"Analyzing… {current}/{total}")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         uid = str(event.row_key.value)
