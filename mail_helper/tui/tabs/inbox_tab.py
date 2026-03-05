@@ -2,7 +2,7 @@ from rich.text import Text
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.widgets import Button, DataTable, Label, ProgressBar, TabPane
 
 from ...ai_analyzer import AnalysisResult, analyze_mails
@@ -12,10 +12,14 @@ from ...mail_backend import IMAPClient, MailMessage
 from ..screens.mail_detail import MailDetailModal
 
 _PRIORITY_COLORS = {"high": "red", "medium": "yellow", "low": "green"}
+_DEL_LABEL = Text("del", style="bold red")
 
 
 class InboxTab(TabPane):
-    BINDINGS = [Binding("m", "toggle_read", "Mark Read/Unread")]
+    BINDINGS = [
+        Binding("m", "toggle_read", "Mark Read/Unread"),
+        Binding("d", "toggle_delete", "Mark for Delete"),
+    ]
 
     DEFAULT_CSS = """
     InboxTab {
@@ -45,10 +49,14 @@ class InboxTab(TabPane):
         self._mail_map: dict[str, MailMessage] = {}
         self._seen_uids: set[str] = set()
         self._cursor_uid: str | None = None
+        self._delete_marked: set[str] = set()
+        # saved priority-column label per uid (to restore when unmarking delete)
+        self._saved_labels: dict[str, Text] = {}
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="toolbar"):
             yield Label("", id="status")
+            yield Button("Delete Marked (0)", id="delete-marked-btn", variant="error", disabled=True)
             yield Button("Analyze with AI", id="analyze-btn", variant="primary")
         yield ProgressBar(id="analysis-progress", total=1, show_eta=False)
         yield DataTable(id="inbox-table")
@@ -75,6 +83,8 @@ class InboxTab(TabPane):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "analyze-btn":
             self._run_analysis()
+        elif event.button.id == "delete-marked-btn":
+            self._delete_marked_bg(list(self._delete_marked))
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key is not None:
@@ -84,6 +94,47 @@ class InboxTab(TabPane):
         if self._cursor_uid:
             seen = self._cursor_uid not in self._seen_uids
             self._mark_seen_bg(self._cursor_uid, seen)
+
+    def action_toggle_delete(self) -> None:
+        uid = self._cursor_uid
+        if not uid:
+            return
+        if uid in self._delete_marked:
+            # Unmark: restore saved label
+            self._delete_marked.discard(uid)
+            restored = self._saved_labels.pop(uid, Text(""))
+            self._update_priority_cell(uid, restored)
+        else:
+            # Mark: save current label, show "del"
+            self._delete_marked.add(uid)
+            current = self._get_priority_label(uid)
+            self._saved_labels[uid] = current
+            self._update_priority_cell(uid, _DEL_LABEL)
+        self._refresh_delete_btn()
+
+    def _get_priority_label(self, uid: str) -> Text:
+        """Read the current priority cell value for a uid."""
+        table = self.query_one("#inbox-table", DataTable)
+        try:
+            cell = table.get_cell(uid, "priority")
+            if isinstance(cell, Text):
+                return cell
+        except Exception:
+            pass
+        return Text("")
+
+    def _update_priority_cell(self, uid: str, label: Text) -> None:
+        table = self.query_one("#inbox-table", DataTable)
+        try:
+            table.update_cell(uid, "priority", label, update_width=True)
+        except Exception:
+            pass
+
+    def _refresh_delete_btn(self) -> None:
+        count = len(self._delete_marked)
+        btn = self.query_one("#delete-marked-btn", Button)
+        btn.label = f"Delete Marked ({count})"
+        btn.disabled = count == 0
 
     @work(thread=True, exclusive=True)
     def _load_inbox(self, background: bool = False) -> None:
@@ -158,6 +209,9 @@ class InboxTab(TabPane):
         table = self.query_one("#inbox-table", DataTable)
         table.clear()
         self._mail_map.clear()
+        self._delete_marked.clear()
+        self._saved_labels.clear()
+        self._refresh_delete_btn()
         for m in mails:
             self._mail_map[m.uid] = m
             priority = Text("read", style="dim") if m.uid in self._seen_uids else Text("")
@@ -166,13 +220,14 @@ class InboxTab(TabPane):
         self._set_status(f"{count} unread email{'s' if count != 1 else ''} — press R to refresh")
 
     def _apply_single_result(self, result: AnalysisResult, current: int, total: int) -> None:
-        table = self.query_one("#inbox-table", DataTable)
-        color = _PRIORITY_COLORS.get(result.importance, "white")
-        label = Text(result.importance, style=f"bold {color}")
-        try:
-            table.update_cell(result.uid, "priority", label, update_width=True)
-        except Exception:
-            pass
+        # Don't overwrite a "del" mark; update saved label instead
+        if result.uid in self._delete_marked:
+            color = _PRIORITY_COLORS.get(result.importance, "white")
+            self._saved_labels[result.uid] = Text(result.importance, style=f"bold {color}")
+        else:
+            color = _PRIORITY_COLORS.get(result.importance, "white")
+            label = Text(result.importance, style=f"bold {color}")
+            self._update_priority_cell(result.uid, label)
         self._set_status(f"Analyzing… {current}/{total}")
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -186,10 +241,10 @@ class InboxTab(TabPane):
 
     def _on_detail_closed(self, uid: str, result: str | None) -> None:
         if result == "delete":
-            self._delete_mail_bg(uid)
+            self._delete_mail_bg_single(uid)
 
     @work(thread=True)
-    def _delete_mail_bg(self, uid: str) -> None:
+    def _delete_mail_bg_single(self, uid: str) -> None:
         client = IMAPClient(self._config)
         try:
             client.connect()
@@ -200,6 +255,34 @@ class InboxTab(TabPane):
         finally:
             client.disconnect()
         self.app.call_from_thread(self._remove_row, uid)
+
+    @work(thread=True)
+    def _delete_marked_bg(self, uids: list[str]) -> None:
+        if not uids:
+            return
+        self.app.call_from_thread(self._set_status, f"Deleting {len(uids)} email(s)…")
+        client = IMAPClient(self._config)
+        failed: list[str] = []
+        deleted: list[str] = []
+        try:
+            client.connect()
+            for uid in uids:
+                try:
+                    client.delete_mail(uid)
+                    deleted.append(uid)
+                except Exception:
+                    failed.append(uid)
+        except Exception as exc:
+            self.app.call_from_thread(self._set_status, f"Delete error: {exc}")
+            return
+        finally:
+            client.disconnect()
+        for uid in deleted:
+            self.app.call_from_thread(self._remove_row, uid)
+        if failed:
+            self.app.call_from_thread(self._set_status, f"Deleted {len(deleted)}, failed {len(failed)}")
+        else:
+            self.app.call_from_thread(self._set_status, f"Deleted {len(deleted)} email(s)")
 
     @work(thread=True)
     def _mark_seen_bg(self, uid: str, seen: bool) -> None:
@@ -225,6 +308,9 @@ class InboxTab(TabPane):
             pass
         self._mail_map.pop(uid, None)
         self._seen_uids.discard(uid)
+        self._delete_marked.discard(uid)
+        self._saved_labels.pop(uid, None)
+        self._refresh_delete_btn()
 
     def _apply_seen_state(self, uid: str, seen: bool) -> None:
         table = self.query_one("#inbox-table", DataTable)
@@ -235,7 +321,11 @@ class InboxTab(TabPane):
             self._seen_uids.discard(uid)
             label = Text("")
         save_seen_uids(self._seen_uids)
-        try:
-            table.update_cell(uid, "priority", label, update_width=True)
-        except Exception:
-            pass
+        # If marked for delete, update saved label instead of the cell
+        if uid in self._delete_marked:
+            self._saved_labels[uid] = label
+        else:
+            try:
+                table.update_cell(uid, "priority", label, update_width=True)
+            except Exception:
+                pass
