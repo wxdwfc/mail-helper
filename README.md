@@ -115,6 +115,7 @@ Rules:
 - Any validation/render error blocks the entire send (no partial send starts).
 
 Use `bulk_mail.example.toml` and `templates/welcome.txt` as a starting point.
+For personal/runtime plans, prefer a filename like `bulk_mail.local.toml`; `*.local.toml` is gitignored.
 
 ### Trigger CFP Plan Format
 
@@ -150,6 +151,7 @@ Rules:
 - Default mode is a dry run. Use `--yes` to enter send mode, then confirm interactively before SMTP delivery starts.
 
 Use `cfp_trigger.example.toml` and `templates/cfp_call.txt` as a starting point.
+For personal/runtime plans, prefer a filename like `cfp_trigger.local.toml`; `*.local.toml` is gitignored.
 
 ### AI filtering rules (`rule.md`)
 
