@@ -1,0 +1,16 @@
+[trigger]
+sender_contains = "Rong Chen"
+subject_regex = '^Weekly report (?P<week_start>\d{4}-\d{1,2}-\d{1,2}) ~ (?P<week_end>\d{1,2}-\d{1,2})$'
+body_contains = "Call for report"
+
+[message]
+subject = "[CFP] Weekly call after report {week_start} ~ {week_end}"
+body_file = "templates/cfp_call.txt"
+
+[[recipients]]
+to = "alice@example.com"
+vars = { name = "Alice", group = "IPADS DS" }
+
+[[recipients]]
+to = "bob@example.com"
+vars = { name = "Bob", group = "IPADS DS" }

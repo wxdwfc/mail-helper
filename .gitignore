@@ -1,4 +1,5 @@
 config.yaml
+cfp_trigger.toml
 .mail_cache.json
 __pycache__/
 *.pyc

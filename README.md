@@ -8,6 +8,7 @@ A Python terminal mail client with a Textual TUI and a Claude Code `/mail` slash
 - **Search tab** — keyword search across subjects and body text
 - **Compose tab** — send bulk emails via SMTP (manual or TOML plan)
 - **TOML bulk-send** — template + variables + dry-run preview before actual sending
+- **Trigger CFP workflow** — detect a matching incoming mail, then send a templated batch
 - **Mail detail modal** — scrollable full-email view
 - **CLI** — `inbox`, `analyze`, and `bulk-send` commands for scripting and automation
 - **AI prioritization** — ranks emails by importance using any OpenAI-compatible model
@@ -71,8 +72,17 @@ python -m mail_helper.cli analyze --rules ~/my-rules.md
 # TOML-driven bulk send (dry-run preview only)
 python -m mail_helper.cli bulk-send --plan bulk_mail.example.toml
 
-# Actually send after preview/validation
+# Enter send mode after preview/validation, then confirm interactively
 python -m mail_helper.cli bulk-send --plan bulk_mail.example.toml --yes
+
+# Scan recent mail, including already-read mail, for a trigger
+python -m mail_helper.cli trigger-cfp --plan cfp_trigger.example.toml
+
+# Limit scanning to unread mail only
+python -m mail_helper.cli trigger-cfp --plan cfp_trigger.example.toml --scope unread
+
+# Enter send mode, then confirm before sending
+python -m mail_helper.cli trigger-cfp --plan cfp_trigger.example.toml --yes
 ```
 
 ### TOML Bulk Plan Format
@@ -106,6 +116,41 @@ Rules:
 
 Use `bulk_mail.example.toml` and `templates/welcome.txt` as a starting point.
 
+### Trigger CFP Plan Format
+
+`trigger-cfp` accepts a TOML file with three sections:
+
+- `trigger`: how to identify the incoming mail
+- `message`: the outgoing subject/body template
+- `recipients`: who should receive the rendered mail
+
+```toml
+[trigger]
+sender_contains = "Rong Chen"
+subject_regex = '^Weekly report (?P<week_start>\d{4}-\d{1,2}-\d{1,2}) ~ (?P<week_end>\d{1,2}-\d{1,2})$'
+body_contains = "Call for report"
+
+[message]
+subject = "[CFP] Weekly call after report {week_start} ~ {week_end}"
+body_file = "templates/cfp_call.txt"
+
+[[recipients]]
+to = "alice@example.com"
+vars = { name = "Alice", group = "IPADS DS" }
+```
+
+Rules:
+- At least one trigger condition is required.
+- `*_contains` checks are case-insensitive substring matches.
+- `*_regex` checks are case-insensitive Python regexes.
+- Named regex groups become template variables, such as `week_start` and `week_end`.
+- Built-in trigger variables are always available: `trigger_uid`, `trigger_subject`, `trigger_sender`, `trigger_date`, `trigger_body`.
+- `message` must define exactly one of `body` or `body_file`.
+- `body_file` is resolved relative to the TOML file directory.
+- Default mode is a dry run. Use `--yes` to enter send mode, then confirm interactively before SMTP delivery starts.
+
+Use `cfp_trigger.example.toml` and `templates/cfp_call.txt` as a starting point.
+
 ### AI filtering rules (`rule.md`)
 
 Drop a `rule.md` in the working directory to inject personal prioritization rules into the AI prompt. Both CLI and TUI pick it up automatically — no config change needed.
@@ -128,6 +173,7 @@ mail-helper/
 ├── main.py                        # TUI entry point
 ├── config.yaml.example            # Config template
 ├── bulk_mail.example.toml         # Example TOML bulk-send plan
+├── cfp_trigger.example.toml       # Example trigger-to-CFP plan
 ├── templates/                     # Example body templates
 ├── requirements.txt
 ├── .claude/commands/mail.md       # /mail slash command
@@ -135,6 +181,7 @@ mail-helper/
     ├── config.py                  # AppConfig + load_config()
     ├── mail_backend.py            # IMAPClient + SMTPClient
     ├── bulk_plan.py               # TOML plan parsing + rendering
+    ├── cfp_trigger.py             # Trigger matching + CFP rendering
     ├── ai_analyzer.py             # AI importance analysis
     ├── cli.py                     # Click CLI
     └── tui/

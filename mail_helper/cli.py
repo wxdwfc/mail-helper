@@ -10,6 +10,7 @@ from .ai_analyzer import analyze_mails
 from .bulk_plan import BulkPlanError, load_bulk_plan, preview_rows, render_bulk_plan
 from .cache import load_inbox, save_inbox
 from .config import load_config
+from .cfp_trigger import CFPTriggerError, find_trigger_mail, load_cfp_plan, render_cfp_plan
 from .mail_backend import IMAPClient, SMTPClient
 
 console = Console()
@@ -176,10 +177,119 @@ def bulk_send(plan_path: Path, send_now: bool, preview_limit: int) -> None:
         console.print("[yellow]Dry run only. Re-run with --yes to send.[/yellow]")
         return
 
+    click.confirm(f"Send {total} email(s)?", abort=True)
     config = load_config()
     client = SMTPClient(config)
     with console.status(f"Sending {total} email(s)…"):
         sent, failed = client.send_rendered(rendered)
+
+    if sent:
+        console.print(f"[green]Sent {len(sent)} email(s).[/green]")
+    if failed:
+        console.print(f"[red]Failed {len(failed)} email(s): {', '.join(failed)}[/red]")
+        raise Exit(1)
+
+
+@cli.command(name="trigger-cfp")
+@click.option(
+    "--plan",
+    "plan_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to trigger CFP TOML plan.",
+)
+@click.option(
+    "--scope",
+    type=click.Choice(["unread", "all"], case_sensitive=False),
+    default="all",
+    show_default=True,
+    help="Which inbox messages to scan for the trigger mail.",
+)
+@click.option("--limit", default=30, show_default=True, type=int, help="Max messages to inspect.")
+@click.option(
+    "--yes",
+    "send_now",
+    is_flag=True,
+    default=False,
+    help="Actually send emails. Default mode is dry-run preview.",
+)
+@click.option(
+    "--preview-limit",
+    default=10,
+    show_default=True,
+    type=int,
+    help="How many rendered emails to show in preview.",
+)
+def trigger_cfp(
+    plan_path: Path,
+    scope: str,
+    limit: int,
+    send_now: bool,
+    preview_limit: int,
+) -> None:
+    """Match an incoming mail and send a rendered CFP batch."""
+    if limit <= 0:
+        raise click.BadParameter("must be > 0", param_hint="--limit")
+    if preview_limit < 0:
+        raise click.BadParameter("must be >= 0", param_hint="--preview-limit")
+
+    resolved_plan = plan_path.resolve()
+    try:
+        plan = load_cfp_plan(str(resolved_plan))
+    except CFPTriggerError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    config = load_config()
+    imap_client = IMAPClient(config)
+    try:
+        with console.status(f"Scanning {scope} messages for a trigger mail…"):
+            imap_client.connect()
+            if scope.lower() == "unread":
+                mails = imap_client.fetch_unread(limit=limit)
+            else:
+                mails = imap_client.fetch_uids(imap_client.get_all_uids(limit=limit))
+    finally:
+        imap_client.disconnect()
+
+    if not mails:
+        console.print("[yellow]No messages found in the selected scope.[/yellow]")
+        raise Exit(1)
+
+    try:
+        match = find_trigger_mail(mails, plan.trigger)
+        if match is None:
+            console.print(f"[yellow]No trigger mail matched in the last {len(mails)} message(s).[/yellow]")
+            raise Exit(1)
+        rendered = render_cfp_plan(plan, match, base_dir=resolved_plan.parent)
+    except CFPTriggerError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    console.print(
+        "[green]Matched trigger mail:[/green] "
+        f"{match.mail.subject} [dim]from {match.mail.sender} on {match.mail.date}[/dim]"
+    )
+
+    preview = preview_rows(rendered, limit=preview_limit)
+    table = Table(title=f"Trigger CFP Preview ({len(rendered)})", show_lines=True)
+    table.add_column("#", style="dim", width=4)
+    table.add_column("To", min_width=24)
+    table.add_column("Subject", min_width=28)
+
+    for index, (to, subject, _) in enumerate(preview, start=1):
+        table.add_row(str(index), to[:50], subject[:70])
+
+    console.print(table)
+    if len(rendered) > len(preview):
+        console.print(f"[dim]Showing {len(preview)} of {len(rendered)} rendered emails.[/dim]")
+
+    if not send_now:
+        console.print("[yellow]Dry run only. Re-run with --yes to send.[/yellow]")
+        return
+
+    click.confirm(f"Send {len(rendered)} email(s)?", abort=True)
+    smtp_client = SMTPClient(config)
+    with console.status(f"Sending {len(rendered)} email(s)…"):
+        sent, failed = smtp_client.send_rendered(rendered)
 
     if sent:
         console.print(f"[green]Sent {len(sent)} email(s).[/green]")
