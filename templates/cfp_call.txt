@@ -1,11 +1,7 @@
 Hi {name},
 
-The weekly report trigger mail for {group} has arrived.
+Please fill the work report at https://scalelab.top/okr, thanks. 
 
-Please share your paper updates for the cycle {week_start} ~ {week_end}.
-
-Trigger mail subject: {trigger_subject}
-Trigger mail sender: {trigger_sender}
 
 Best,
-Mail Helper
+Xingda 
