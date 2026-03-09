@@ -168,6 +168,44 @@ If `rule.md` is absent the analyzer falls back to its built-in behavior. See `ru
 
 From within a Claude Code session in this directory, run `/mail` to use the AI-assisted email workflows.
 
+## gmail_bot
+
+A standalone Gmail CLI tool for sending emails and replying to threads. Uses `gmail.yaml` for credentials (Gmail App Password).
+
+### Setup
+
+```bash
+# Create gmail.yaml with your Gmail credentials
+cat > gmail.yaml <<EOF
+acct: you@gmail.com
+pwd: your-app-password
+EOF
+```
+
+To get an App Password: Google Account → Security → 2-Step Verification → App passwords → Generate.
+
+### Usage
+
+```bash
+# Send a new email
+python -m gmail_bot send --to someone@example.com --subject "Hello" --body "Hi there"
+
+# Reply to a thread (finds latest match by subject)
+python -m gmail_bot reply --subject "Weekly report 2026-03-02" \
+  --body "My report..." --to rongchen@sjtu.edu.cn
+
+# Reply with CC
+python -m gmail_bot reply --subject "Weekly report 2026-03-02" \
+  --body "My report..." --cc group@example.com
+
+# Dry-run: find the thread without sending
+python -m gmail_bot reply --subject "Weekly report 2026-03-02" --dry-run
+
+# Body from file or stdin
+python -m gmail_bot reply --subject "Weekly report" --body-file report.txt
+echo "my report" | python -m gmail_bot reply --subject "Weekly report"
+```
+
 ## Project Structure
 
 ```
@@ -179,6 +217,11 @@ mail-helper/
 ├── templates/                     # Example body templates
 ├── requirements.txt
 ├── .claude/commands/mail.md       # /mail slash command
+├── gmail_bot/                     # Standalone Gmail CLI
+│   ├── __main__.py                # CLI: send + reply commands
+│   ├── config.py                  # GmailConfig from gmail.yaml
+│   ├── imap.py                    # IMAP search + message parsing
+│   └── smtp.py                    # send_mail() + reply_thread()
 └── mail_helper/
     ├── config.py                  # AppConfig + load_config()
     ├── mail_backend.py            # IMAPClient + SMTPClient
