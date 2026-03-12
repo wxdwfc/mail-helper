@@ -21,3 +21,5 @@ ai_model: gpt-4o-mini
 
 # How many emails to fetch
 fetch_count: 50
+
+# trash_folder: ""  # leave empty for auto-detect; or set e.g. "[Gmail]/Trash"

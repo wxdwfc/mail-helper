@@ -16,6 +16,7 @@ class AppConfig:
     ai_api_key: str = ""
     ai_model: str = "gpt-4o-mini"
     fetch_count: int = 25
+    trash_folder: str = ""  # optional; auto-detected if empty
 
 
 def load_config(path: str = "config.yaml") -> AppConfig:
@@ -39,4 +40,5 @@ def load_config(path: str = "config.yaml") -> AppConfig:
         ai_api_key=data.get("ai_api_key", ""),
         ai_model=data.get("ai_model", "gpt-4o-mini"),
         fetch_count=int(data.get("fetch_count", 25)),
+        trash_folder=data.get("trash_folder", ""),
     )

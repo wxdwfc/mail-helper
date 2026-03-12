@@ -46,6 +46,8 @@ class IMAPClient:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self._conn: imaplib.IMAP4_SSL | None = None
+        self._trash_folder: str | None = None
+        self._trash_detected: bool = False
 
     def connect(self) -> None:
         self._conn = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
@@ -63,7 +65,7 @@ class IMAPClient:
     def get_unread_uids(self, limit: int | None = None) -> list[str]:
         """Return UNSEEN UIDs newest-first without fetching bodies."""
         assert self._conn is not None, "Not connected"
-        _, data = self._conn.search(None, "UNSEEN")
+        _, data = self._conn.uid("SEARCH", None, "UNSEEN")
         uids = data[0].split()
         if limit:
             uids = uids[-limit:]
@@ -72,7 +74,7 @@ class IMAPClient:
     def get_all_uids(self, limit: int | None = None) -> list[str]:
         """Return ALL UIDs (read + unread) newest-first without fetching bodies."""
         assert self._conn is not None, "Not connected"
-        _, data = self._conn.search(None, "ALL")
+        _, data = self._conn.uid("SEARCH", None, "ALL")
         uids = data[0].split()
         if limit:
             uids = uids[-limit:]
@@ -101,14 +103,14 @@ class IMAPClient:
             # Try CHARSET UTF-8 search (RFC 5738); many servers support it
             try:
                 criteria_bytes = f'OR SUBJECT "{escaped}" TEXT "{escaped}"'.encode("utf-8")
-                _, data = self._conn.search("UTF-8", criteria_bytes)
+                _, data = self._conn.uid("SEARCH", "CHARSET", "UTF-8", criteria_bytes)
                 uids = data[0].split()
             except (imaplib.IMAP4.error, Exception):
                 uids = None  # fall through to client-side
 
         if uids is None and not is_unicode:
             # Pure ASCII — plain server-side search
-            _, data = self._conn.search(None, f'OR SUBJECT "{escaped}" TEXT "{escaped}"')
+            _, data = self._conn.uid("SEARCH", None, f'OR SUBJECT "{escaped}" TEXT "{escaped}"')
             uids = data[0].split()
 
         if uids is None:
@@ -126,7 +128,7 @@ class IMAPClient:
 
     def _client_side_search(self, keyword: str, limit: int | None = None) -> list[MailMessage]:
         """Fetch recent emails and match keyword in Python (Unicode-safe fallback)."""
-        _, data = self._conn.search(None, "ALL")
+        _, data = self._conn.uid("SEARCH", None, "ALL")
         all_uids = data[0].split()[-200:]  # cap at 200 to avoid full-mailbox fetch
         kw = keyword.lower()
         results = []
@@ -146,14 +148,51 @@ class IMAPClient:
         assert self._conn is not None, "Not connected"
         self._conn.uid("STORE", uid, "-FLAGS", r"(\Seen)")
 
+    def _detect_trash_folder(self) -> str | None:
+        assert self._conn is not None
+        if self.config.trash_folder:
+            return self.config.trash_folder
+        # RFC 6154: find folder with \Trash special-use attribute
+        _, folders = self._conn.list('""', '*')
+        for entry in folders:
+            if entry is None:
+                continue
+            line = entry.decode() if isinstance(entry, bytes) else entry
+            if r"\Trash" in line:
+                # Handle both quoted ("/") and bare / delimiters
+                for sep in ('"/"', '/'):
+                    parts = line.split(sep)
+                    if len(parts) >= 2:
+                        return parts[-1].strip().strip('"')
+
+        # Fallback: try common names
+        for candidate in ("[Gmail]/Trash", "Trash", "Deleted Messages", "Deleted Items"):
+            try:
+                status, _ = self._conn.select(candidate, readonly=True)
+                if status == "OK":
+                    self._conn.select("INBOX")
+                    return candidate
+            except Exception:
+                continue
+        return None
+
     def delete_mail(self, uid: str) -> None:
         assert self._conn is not None, "Not connected"
-        self._conn.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
-        self._conn.expunge()
+        if not self._trash_detected:
+            self._trash_folder = self._detect_trash_folder()
+            self._trash_detected = True
+        if self._trash_folder:
+            quoted = f'"{self._trash_folder}"'
+            self._conn.uid("COPY", uid, quoted)
+            self._conn.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
+            self._conn.expunge()
+        else:
+            self._conn.uid("STORE", uid, "+FLAGS", r"(\Deleted)")
+            self._conn.expunge()
 
     def _fetch_single(self, uid: str) -> MailMessage | None:
         try:
-            _, data = self._conn.fetch(uid, "(RFC822)")
+            _, data = self._conn.uid("FETCH", uid, "(RFC822)")
             raw = data[0][1]
             msg = email.message_from_bytes(raw)
             subject = self._decode_header_value(msg.get("Subject", "(no subject)"))

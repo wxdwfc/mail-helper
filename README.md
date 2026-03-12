@@ -33,6 +33,7 @@ cp config.yaml.example config.yaml
 | `ai_api_key` | API key for the AI provider |
 | `ai_model` | Model name (e.g. `gpt-4o-mini`) |
 | `fetch_count` | Max emails to fetch (default: 50) |
+| `trash_folder` | Trash folder for deleted mail; leave empty for auto-detect (default: `""`) |
 
 > For Gmail, use an [App Password](https://support.google.com/accounts/answer/185833) instead of your account password.
 
