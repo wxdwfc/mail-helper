@@ -100,8 +100,23 @@ def search_by_subject(cfg: GmailConfig, query: str, limit: int = 10) -> list[Mes
     conn.login(cfg.acct, cfg.pwd)
     conn.select("INBOX")
     try:
-        escaped = query.replace('"', '\\"')
-        _, data = conn.search(None, f'SUBJECT "{escaped}"')
+        if query.isascii():
+            escaped = query.replace('"', '\\"')
+            _, data = conn.search(None, f'SUBJECT "{escaped}"')
+        else:
+            # Non-ASCII: use raw IMAP command with UTF-8 literal
+            tag = conn._new_tag()
+            # Send: <tag> SEARCH CHARSET UTF-8 SUBJECT {<len>}\r\n<utf8-bytes>
+            literal = query.encode("utf-8")
+            conn.send(tag + b" SEARCH CHARSET UTF-8 SUBJECT {" +
+                      str(len(literal)).encode() + b"}\r\n")
+            # Wait for continuation response '+'
+            while True:
+                line = conn.readline()
+                if line.startswith(b"+"):
+                    break
+            conn.send(literal + b"\r\n")
+            _, data = conn._command_complete("SEARCH", tag)
         uids = data[0].split()
         if not uids:
             return []
