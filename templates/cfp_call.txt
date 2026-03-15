@@ -2,6 +2,10 @@ Hi {name},
 
 Please fill the work report at https://scalelab.top/okr, thanks. 
 
+The OKR site has now supported configuring the `target conferences` as well as the DDLs. 
+Please set at least one DDL for one of the KR, and set the target conferences if exist. 
+
+
 
 Best,
 Xingda 

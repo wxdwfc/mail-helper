@@ -282,6 +282,12 @@ def trigger_cfp(
     if len(rendered) > len(preview):
         console.print(f"[dim]Showing {len(preview)} of {len(rendered)} rendered emails.[/dim]")
 
+    for sample in rendered[:3]:
+        console.print(f"\n[bold]Sample body[/bold] (to: {sample.to}):")
+        console.rule()
+        console.print(sample.body)
+        console.rule()
+
     if not send_now:
         console.print("[yellow]Dry run only. Re-run with --yes to send.[/yellow]")
         return
